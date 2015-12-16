@@ -1,15 +1,20 @@
 #!/usr/bin/python
 import ephem
+import logging
 from datetime import datetime
 from time import gmtime, strftime, sleep
 from subprocess import call, check_output
 
-# Only adjust the brightness when any of these programs are running (add '*' to always have it enabled)
-PROGRAMS_ENABLED = ['eclipse', 'android-studio', '*']
-# Disable when these programs are running (even if any of the above are running)
+
+# Adjust brightness when any of the programs below are active or always enabled is true
+ALWAYS_ENABLED = True
+PROGRAMS_ENABLED = ['eclipse', 'android-studio']
+
+# Always disabled adjustment and set it to default when any of these programs are running
 PROGRAMS_DISABLED = ['mplayer', 'smplayer', 'vlc']
-# Disable when anything is set into fullscreen
+# Always disabled adjustment and set it to default when anything is in fullscreen
 FULLSCREEN_DISABLED = True
+
 # Displays to change brightness of
 DISPLAYS = ['DFP1', 'DFP2', 'DFP5']
 
@@ -24,14 +29,18 @@ LOCATION_LATITUDE = 55.7
 LOCATION_LONGITUDE = 13.2
 LOCATION_ELEVATION = 20
 
+
+# --- Other non-essential settings ---
+
 # How long to wait between checking if something has changed
 WAIT_TIME = 1
 
+LOG_LOCATION = '/tmp/brightnessAdjuster.log'
+LOG_LEVEL = logging.INFO
 
 
-def log(message):
-#     print(message)
-    return
+# Setup logging
+logging.basicConfig(format='%(asctime)s:%(levelname)s: %(message)s', filename=LOG_LOCATION, level=LOG_LEVEL, datefmt='%Y-%m-%d %H:%M:%S')
 
 
 class SunsetChecker:
@@ -88,6 +97,9 @@ class ProgramChecker:
         self.fullscreenWindowIds = []
 
     def isEnableProgramRunning(self):
+        if ALWAYS_ENABLED:
+            return True
+
         for program in self.programsActive:
             if (self.isProgramRunning(program)):
                 return True
@@ -102,10 +114,10 @@ class ProgramChecker:
 
             windowIdOutput = check_output(['xprop', '-display', self.DISPLAY, '-root', '_NET_ACTIVE_WINDOW']).decode('utf-8')
             windowId = windowIdOutput[40:-1]
-            log("Window id: " + windowId)
+            logging.debug("Window id: " + windowId)
             if self._isWindowFullscreen(windowId):
                 if self.fullscreenWindowIds.count(windowId) == 0:
-                    log("Fullscreen window found!")
+                    logging.info("Fullscreen window found!")
                     self.fullscreenWindowIds.append(windowId)
 
 
@@ -130,7 +142,7 @@ class ProgramChecker:
         # Check fullscreen
         self.checkForFullscreen()
         if self.isFullscreenActive():
-            log("Fullscreen is active")
+            logging.debug("Fullscreen is active")
             return True
 
         return False
@@ -138,7 +150,7 @@ class ProgramChecker:
     def isProgramRunning(self, searchFor):
         output = check_output(['ps', 'aux']).decode('utf-8')
         if output.find(searchFor) != -1:
-            log("Found program " + searchFor)
+            logging.debug("Found program " + searchFor)
             return True
         else:
             return False
@@ -157,7 +169,7 @@ class BrightnessAdjuster:
         self.currentBrightness = adjustFrom[1] - self.BRIGHTNESS_ADJUSTMENT_PER_10MS
 
     def adjustBrightness(self, minutesToSunset):
-        log("Minutes to sunset: " + str(minutesToSunset))
+        logging.debug("Minutes to sunset: " + str(minutesToSunset))
         if (self.isAdjusting(minutesToSunset)):
             clampedTime = max(minutesToSunset, self.adjustTo[0])
             diffTime = self.adjustFrom[0] - clampedTime
@@ -186,7 +198,7 @@ class BrightnessAdjuster:
                 sleep(self.BRIGHTNESS_SLEEP_TIME)
 
         self.setBrightness(brightness)
-        log("Brightness: " + str(brightness))
+        logging.info("Brightness: " + str(brightness))
 
     def setBrightness(self, brightness):
         self.currentBrightness = brightness
@@ -194,7 +206,7 @@ class BrightnessAdjuster:
             call(['xrandr', '--output', display, '--brightness', str(brightness)])
 
     def disable(self):
-        log("Disable adjuster")
+        logging.debug("Disable adjuster")
         self.setBrightnessFade(self.adjustFrom[1])
 
     def isActive(self):
@@ -215,7 +227,7 @@ sunsetChecker = SunsetChecker()
 while True:
     # Check if we should disable the brightness correction
     if brightnessAdjuster.isActive():
-        log("Adjuster active")
+        logging.debug("Brightness has been adjusted")
         # Disabled running
         if programChecker.isDisableProgramRunnnig():
             brightnessAdjuster.disable()
@@ -226,11 +238,11 @@ while True:
         else:
             sunsetChecker.update()
             brightnessAdjuster.adjustBrightness(sunsetChecker.getMinutesTillSunset())
+
     # Check if we should enable brightness correction
     else:
-        log("Adjuster inactive")
+        logging.debug("Brightness at default")
         if programChecker.isEnableProgramRunning() and not programChecker.isDisableProgramRunnnig():
-            log("Update sunset checker")
             sunsetChecker.update()
             brightnessAdjuster.adjustBrightness(sunsetChecker.getMinutesTillSunset())
     
