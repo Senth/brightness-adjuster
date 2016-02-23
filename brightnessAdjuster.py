@@ -3,7 +3,7 @@ import ephem
 import logging
 from datetime import datetime
 from time import gmtime, strftime, sleep
-from subprocess import call, check_output
+from subprocess import call, check_output, CalledProcessError
 
 
 # Adjust brightness when any of the programs below are active or always enabled is true
@@ -21,8 +21,8 @@ DISPLAYS = ['DFP1', 'DFP2', 'DFP5']
 # Brightness adjustments depending on the sunset time.
 # First tuplet is minutes to sunset (can be negative)
 # Second tuplet is brightness in the range [0.0,1.0]
-ADJUST_FROM = (60, 1.0)
-ADJUST_TO = (-60, 0.75)
+ADJUST_FROM = (90, 1.0)
+ADJUST_TO = (-30, 0.75)
 
 # Location information
 LOCATION_LATITUDE = 55.7
@@ -122,11 +122,12 @@ class ProgramChecker:
 
 
     def _isWindowFullscreen(self, windowId):
-        windowOutput = check_output(['xprop', '-display', self.DISPLAY, '-id', windowId]).decode('utf-8')
-        if windowOutput.find('_NET_WM_STATE_FULLSCREEN') != -1:
-            return True
-        else:
-            return False
+        if len(windowId) == 9:
+            windowOutput = check_output(['xprop', '-display', self.DISPLAY, '-id', windowId]).decode('utf-8')
+            if windowOutput.find('_NET_WM_STATE_FULLSCREEN') != -1:
+                return True
+            else:
+                return False
 
     def isFullscreenActive(self):
         if len(self.fullscreenWindowIds) > 0:
@@ -225,25 +226,28 @@ sunsetChecker = SunsetChecker()
 
 
 while True:
-    # Check if we should disable the brightness correction
-    if brightnessAdjuster.isActive():
-        logging.debug("Brightness has been adjusted")
-        # Disabled running
-        if programChecker.isDisableProgramRunnnig():
-            brightnessAdjuster.disable()
-        # No enabled running, disable
-        elif not programChecker.isEnableProgramRunning():
-            brightnessAdjuster.disable()
-        # Enabled program running, adjust brightness
-        else:
-            sunsetChecker.update()
-            brightnessAdjuster.adjustBrightness(sunsetChecker.getMinutesTillSunset())
+    try:
+        # Check if we should disable the brightness correction
+        if brightnessAdjuster.isActive():
+            logging.debug("Brightness has been adjusted")
+            # Disabled running
+            if programChecker.isDisableProgramRunnnig():
+                brightnessAdjuster.disable()
+            # No enabled running, disable
+            elif not programChecker.isEnableProgramRunning():
+                brightnessAdjuster.disable()
+            # Enabled program running, adjust brightness
+            else:
+                sunsetChecker.update()
+                brightnessAdjuster.adjustBrightness(sunsetChecker.getMinutesTillSunset())
 
-    # Check if we should enable brightness correction
-    else:
-        logging.debug("Brightness at default")
-        if programChecker.isEnableProgramRunning() and not programChecker.isDisableProgramRunnnig():
-            sunsetChecker.update()
-            brightnessAdjuster.adjustBrightness(sunsetChecker.getMinutesTillSunset())
+        # Check if we should enable brightness correction
+        else:
+            logging.debug("Brightness at default")
+            if programChecker.isEnableProgramRunning() and not programChecker.isDisableProgramRunnnig():
+                sunsetChecker.update()
+                brightnessAdjuster.adjustBrightness(sunsetChecker.getMinutesTillSunset())
+    except CalledProcessError:
+        logging.warning("Couldn't call a subprocess")
     
     sleep(WAIT_TIME)
