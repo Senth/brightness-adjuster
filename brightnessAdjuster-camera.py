@@ -2,6 +2,7 @@
 import logging
 import ephem
 import cv2
+import re
 from datetime import datetime
 from time import gmtime, strftime, sleep
 from subprocess import Popen, check_output, CalledProcessError
@@ -17,6 +18,7 @@ DISPLAYS = ['adl:0:0', 'adl:0:1', 'adl:0:4']
 # XScreen, check with "echo $DISPLAY" in a terminal
 X_SCREEN = ':0.0'
 CAMERA = "/dev/video0"
+CAMERA_PROGRAMS = ['pavucontrol']
 
 # Brightness adjustments depending on the sunset time.
 BRIGHTNESS_MAX = 100
@@ -43,6 +45,7 @@ LOG_LEVEL = logging.DEBUG
 
 # Setup logging
 logging.basicConfig(format='%(asctime)s:%(levelname)s: %(message)s', filename=LOG_LOCATION, level=LOG_LEVEL, datefmt='%Y-%m-%d %H:%M:%S')
+logging.getLogger().addHandler(logging.StreamHandler())
 
 class SunsetChecker:
     def __init__(self):
@@ -59,7 +62,7 @@ class SunsetChecker:
     def update(self):
         self._updateCurrentDate()
         if not self._isSunsetTimeUpToDate():
-            self._updateSunset()
+            self._updateSunsetTime()
 
     def _updateCurrentDate(self):
         now = strftime("%Y-%m-%d", gmtime())
@@ -92,18 +95,25 @@ class SunsetChecker:
 
 
 class AmbientLightChecker:
+    LUX_STABLE_DIFF = 10
+
     def __init__(self):
         self.lux = 0
+        self.realLux = 0
 
     def __exit__(self, exc_type, exc_value, traceback):
-        if self.camera is not None:
+        if self.camera is not None and self.camera.isOpened():
             self.camera.release()
 
     def update(self):
+        if self.cameraIsBeingUsed():
+            return
+
+        oldLux = self.lux
         self.camera = cv2.VideoCapture(0)
+        self.camera.set(5,15)
         self.camera.set(3,320)
         self.camera.set(4,240)
-        self.camera.set(5,15)
         ret, image = self.camera.read()
 
         grayImage = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -111,12 +121,26 @@ class AmbientLightChecker:
         self.lux = int(grayImage[0][0])
         logging.debug("Camera Brightness: " + str(self.lux))
         self.camera.release()
+        self.camera = None
+
+        if abs(oldLux - self.lux) <= self.LUX_STABLE_DIFF:
+            self.realLux = self.lux
+            logging.debug("Updated Ambient Light To: " + str(self.realLux))
+
+    def cameraIsBeingUsed(self):
+        ps = check_output(['ps', 'x']).decode('utf-8')
+        for program in CAMERA_PROGRAMS:
+            matches = re.search(program, ps)
+            if matches:
+                print('Camera is being used by ' + program)
+                return True
+        return False
 
     def getLux(self):
-        return self.lux
+        return self.realLux
 
     def getNormalizedLux(self):
-        return float(self.lux) / float(256)
+        return float(self.realLux) / float(256)
         
 
 class ProgramChecker:
@@ -180,40 +204,53 @@ class ProgramChecker:
 class BrightnessAdjuster:
     def __init__(self):
         self.movieMode = False
-        self.brightness = 0
+        self.brightness = -100
+        self.darkOutside = False
 
-    def setBrightness(self, lux, darkOutside):
+    def setDarkOutside(self, darkOutside):
+        self.darkOutside = darkOutside;
+
+    def setBrightness(self, lux):
         brightness = int(lux * (BRIGHTNESS_MAX - BRIGHTNESS_MIN))
         oldBrightness = self.brightness
 
         if self.movieMode:
             newBrightness = max(brightness, BRIGHTNESS_MOVIE_MIN)
-        elif darkOutside:
+        elif self.darkOutside:
             logging.debug("Decreasing brightness with " + str(BRIGHTNESS_WHEN_DARK_OUTSIDE) + " as it's dark outside")
-            newBrightness = min(100, max(0, brightness + BRIGHTNESS_WHEN_DARK_OUTSIDE))
+            newBrightness = min(BRIGHTNESS_MAX, max(BRIGHTNESS_MIN, brightness + BRIGHTNESS_WHEN_DARK_OUTSIDE))
         else:
             newBrightness = brightness
 
         diffBrightness = abs(oldBrightness - newBrightness)
-        if darkOutside:
+        if self.darkOutside:
             minDiff = BRIGHTNESS_ADJUSTMENT_THRESHOLD_SUN_DOWN
         else:
             minDiff = BRIGHTNESS_ADJUSTMENT_THRESHOLD_SUN_UP
 
         if diffBrightness >= minDiff:
-            self.brightness = newBrightness
-            logging.info("Set brightness to " + str(self.brightness))
-            for display in DISPLAYS:
-                Popen(['ddccontrol', '-r', '0x10', '-w', str(self.brightness), display])
-            sleep(WAIT_TIME_AFTER_ADJUSTMENT)
+            # Only increase brightness if in movie mode
+            changeBrightness = False
+            if not self.movieMode or newBrightness > self.brightness:
+                self.brightness = newBrightness
+                changeBrightness = True
+
+            if changeBrightness:
+                logging.info("Set brightness to " + str(self.brightness))
+                for display in DISPLAYS:
+                    Popen(['ddccontrol', '-r', '0x10', '-w', str(self.brightness), display])
+                sleep(WAIT_TIME_AFTER_ADJUSTMENT)
 
     def enableMovieMode(self):
-        logging.debug("Movie mode enabled")
+        logging.info("Movie mode enabled")
         self.movieMode = True
 
     def disableMovieMode(self):
-        logging.debug("Movie mode disabled")
+        logging.info("Movie mode disabled")
         self.movieMode = False
+
+    def isMovieMode(self):
+        return self.movieMode
 
 
 # -----------------------
@@ -230,11 +267,12 @@ while True:
         sunsetChecker.update()
         darkOutside = sunsetChecker.isSunset()
         lux = ambientLightChecker.getNormalizedLux()
-        if programChecker.shouldBeDisabled():
+        if programChecker.shouldBeDisabled() and not brightnessAdjuster.isMovieMode():
             brightnessAdjuster.enableMovieMode()
-        else:
+        elif not programChecker.shouldBeDisabled() and brightnessAdjuster.isMovieMode():
             brightnessAdjuster.disableMovieMode()
-        brightnessAdjuster.setBrightness(lux, darkOutside)
+        brightnessAdjuster.setDarkOutside(darkOutside)
+        brightnessAdjuster.setBrightness(lux)
     except CalledProcessError:
         logging.warning("Couldn't call a subprocess")
     sleep(WAIT_TIME)
