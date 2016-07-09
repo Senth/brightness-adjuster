@@ -3,6 +3,7 @@ import logging
 import ephem
 import cv2
 import re
+import argparse
 from datetime import datetime
 from time import gmtime, strftime, sleep
 from subprocess import Popen, check_output, CalledProcessError
@@ -38,6 +39,8 @@ LOCATION_ELEVATION = 20
 WAIT_TIME = 3
 # How many seconds to wait after adjusting the brightness before adjusting again
 WAIT_TIME_AFTER_ADJUSTMENT = 15
+# How long to wait before starting the script. Can be specified by -i 0
+INITIALIZE_TIME = 10
 
 LOG_LOCATION = '/tmp/brightnessAdjuster-camera.log'
 LOG_LEVEL = logging.DEBUG
@@ -96,10 +99,13 @@ class SunsetChecker:
 
 class AmbientLightChecker:
     LUX_STABLE_DIFF = 10
+    CAMERA_RES_X = 8
+    CAMERA_RES_Y = 4
+    SPLIT_X = 5
 
     def __init__(self):
-        self.lux = 0
-        self.realLux = 0
+        self.lux = -256
+        self.realLux = -256
 
     def __exit__(self, exc_type, exc_value, traceback):
         if self.camera is not None and self.camera.isOpened():
@@ -116,16 +122,35 @@ class AmbientLightChecker:
         self.camera.set(4,240)
         ret, image = self.camera.read()
 
-        grayImage = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        grayImage = cv2.resize(grayImage, (1,1))
-        self.lux = int(grayImage[0][0])
-        logging.debug("Camera Brightness: " + str(self.lux))
-        self.camera.release()
-        self.camera = None
+        if ret:
+            self.grayImage = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            self.grayImage = cv2.resize(self.grayImage, (self.CAMERA_RES_X, self.CAMERA_RES_Y))
+            leftMax = self.calculateLeftMax()
+            rightMax = self.calculateRightMax()
+            # Weight left:right 2:1
+            self.lux = (leftMax * 2 + rightMax) / 3
+            logging.debug("Camera Brightness: (" + str(leftMax) + ", " + str(rightMax) + ") -> " + str(self.lux))
+            self.camera.release()
+            self.camera = None
 
-        if abs(oldLux - self.lux) <= self.LUX_STABLE_DIFF:
-            self.realLux = self.lux
-            logging.debug("Updated Ambient Light To: " + str(self.realLux))
+            if abs(oldLux - self.lux) <= self.LUX_STABLE_DIFF:
+                self.realLux = self.lux
+                logging.debug("Updated Ambient Light To: " + str(self.realLux))
+
+    def calculateLeftMax(self):
+        return self.calculateMax(0, self.SPLIT_X - 1)
+
+    def calculateRightMax(self):
+        return self.calculateMax(self.SPLIT_X, self.CAMERA_RES_X - 1)
+
+    def calculateMax(self, fromX, toX):
+        maxValue = 0
+        for x in range(fromX, toX):
+            for y in range(0, self.CAMERA_RES_Y):
+                currentValue = self.grayImage[y][x]
+                if currentValue > maxValue:
+                    maxValue = currentValue
+        return maxValue
 
     def cameraIsBeingUsed(self):
         ps = check_output(['ps', 'x']).decode('utf-8')
@@ -212,7 +237,6 @@ class BrightnessAdjuster:
 
     def setBrightness(self, lux):
         brightness = int(lux * (BRIGHTNESS_MAX - BRIGHTNESS_MIN))
-        oldBrightness = self.brightness
 
         if self.movieMode:
             newBrightness = max(brightness, BRIGHTNESS_MOVIE_MIN)
@@ -222,7 +246,7 @@ class BrightnessAdjuster:
         else:
             newBrightness = brightness
 
-        diffBrightness = abs(oldBrightness - newBrightness)
+        diffBrightness = abs(self.brightness - newBrightness)
         if self.darkOutside:
             minDiff = BRIGHTNESS_ADJUSTMENT_THRESHOLD_SUN_DOWN
         else:
@@ -256,23 +280,34 @@ class BrightnessAdjuster:
 # -----------------------
 # Program Logic
 # -----------------------
-programChecker = ProgramChecker(PROGRAMS_DISABLED, FULLSCREEN_DISABLED)
-brightnessAdjuster = BrightnessAdjuster()
-ambientLightChecker = AmbientLightChecker()
-sunsetChecker = SunsetChecker()
+def main():
+    parser = argparse.ArgumentParser(description='Dynamic screen brightness.')
+    parser.add_argument('-i', '--initialize-time', default=INITIALIZE_TIME, type=int)
+    args = parser.parse_args()
+    sleep(args.initialize_time)
+    programChecker = ProgramChecker(PROGRAMS_DISABLED, FULLSCREEN_DISABLED)
+    brightnessAdjuster = BrightnessAdjuster()
+    ambientLightChecker = AmbientLightChecker()
+    sunsetChecker = SunsetChecker()
 
-while True:
-    try:
-        ambientLightChecker.update()
-        sunsetChecker.update()
-        darkOutside = sunsetChecker.isSunset()
-        lux = ambientLightChecker.getNormalizedLux()
-        if programChecker.shouldBeDisabled() and not brightnessAdjuster.isMovieMode():
-            brightnessAdjuster.enableMovieMode()
-        elif not programChecker.shouldBeDisabled() and brightnessAdjuster.isMovieMode():
-            brightnessAdjuster.disableMovieMode()
-        brightnessAdjuster.setDarkOutside(darkOutside)
-        brightnessAdjuster.setBrightness(lux)
-    except CalledProcessError:
-        logging.warning("Couldn't call a subprocess")
-    sleep(WAIT_TIME)
+    while True:
+        try:
+            ambientLightChecker.update()
+            sunsetChecker.update()
+            darkOutside = sunsetChecker.isSunset()
+            lux = ambientLightChecker.getNormalizedLux()
+            if programChecker.shouldBeDisabled() and not brightnessAdjuster.isMovieMode():
+                brightnessAdjuster.enableMovieMode()
+            elif not programChecker.shouldBeDisabled() and brightnessAdjuster.isMovieMode():
+                brightnessAdjuster.disableMovieMode()
+            brightnessAdjuster.setDarkOutside(darkOutside)
+            if lux >= 0:
+                brightnessAdjuster.setBrightness(lux)
+        except CalledProcessError:
+            logging.exception("Couldn't call a subprocess")
+        sleep(WAIT_TIME)
+
+try:
+    main()
+except:
+    logging.exception("Main exception: ")
