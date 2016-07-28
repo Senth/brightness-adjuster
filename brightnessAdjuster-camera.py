@@ -24,7 +24,7 @@ CAMERA_PROGRAMS = ['pavucontrol']
 # Brightness adjustments depending on the sunset time.
 BRIGHTNESS_MAX = 100
 BRIGHTNESS_MIN = 5
-BRIGHTNESS_WHEN_DARK_OUTSIDE = -10
+BRIGHTNESS_MAX_WHEN_DARK_OUTSIDE = 50
 BRIGHTNESS_MOVIE_MIN = 50
 
 BRIGHTNESS_ADJUSTMENT_THRESHOLD_SUN_UP = 7
@@ -98,14 +98,11 @@ class SunsetChecker:
 
 
 class AmbientLightChecker:
-    LUX_STABLE_DIFF = 10
-    CAMERA_RES_X = 8
-    CAMERA_RES_Y = 4
-    SPLIT_X = 5
+    CAMERA_RES_X = 2
+    CAMERA_RES_Y = 2
 
     def __init__(self):
         self.lux = -256
-        self.realLux = -256
 
     def __exit__(self, exc_type, exc_value, traceback):
         if self.camera is not None and self.camera.isOpened():
@@ -115,7 +112,6 @@ class AmbientLightChecker:
         if self.cameraIsBeingUsed():
             return
 
-        oldLux = self.lux
         self.camera = cv2.VideoCapture(0)
         self.camera.set(5,15)
         self.camera.set(3,320)
@@ -125,27 +121,14 @@ class AmbientLightChecker:
         if ret:
             self.grayImage = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             self.grayImage = cv2.resize(self.grayImage, (self.CAMERA_RES_X, self.CAMERA_RES_Y))
-            leftMax = self.calculateLeftMax()
-            rightMax = self.calculateRightMax()
-            # Weight left:right 2:1
-            self.lux = (leftMax * 2 + rightMax) / 3
-            logging.debug("Camera Brightness: (" + str(leftMax) + ", " + str(rightMax) + ") -> " + str(self.lux))
+            self.lux = self.calculateMax()
+            logging.debug("Camera Brightness: " + str(self.lux))
             self.camera.release()
             self.camera = None
 
-            if abs(oldLux - self.lux) <= self.LUX_STABLE_DIFF:
-                self.realLux = self.lux
-                logging.debug("Updated Ambient Light To: " + str(self.realLux))
-
-    def calculateLeftMax(self):
-        return self.calculateMax(0, self.SPLIT_X - 1)
-
-    def calculateRightMax(self):
-        return self.calculateMax(self.SPLIT_X, self.CAMERA_RES_X - 1)
-
-    def calculateMax(self, fromX, toX):
+    def calculateMax(self):
         maxValue = 0
-        for x in range(fromX, toX):
+        for x in range(0, self.CAMERA_RES_X):
             for y in range(0, self.CAMERA_RES_Y):
                 currentValue = self.grayImage[y][x]
                 if currentValue > maxValue:
@@ -162,10 +145,10 @@ class AmbientLightChecker:
         return False
 
     def getLux(self):
-        return self.realLux
+        return self.lux
 
     def getNormalizedLux(self):
-        return float(self.realLux) / float(256)
+        return float(self.lux) / float(256)
         
 
 class ProgramChecker:
@@ -231,20 +214,24 @@ class BrightnessAdjuster:
         self.movieMode = False
         self.brightness = -100
         self.darkOutside = False
+        self.brightnessMax = BRIGHTNESS_MAX
 
     def setDarkOutside(self, darkOutside):
         self.darkOutside = darkOutside;
+        if darkOutside:
+            logging.debug("It's dark outside...")
+            self.brightnessMax = BRIGHTNESS_MAX_WHEN_DARK_OUTSIDE
+        else:
+            logging.debug("The sun is up :)")
+            self.brightsessMax = BRIGHTNESS_MAX
 
     def setBrightness(self, lux):
-        brightness = int(lux * (BRIGHTNESS_MAX - BRIGHTNESS_MIN))
+        tempBrightness = int(lux * (self.brightnessMax - BRIGHTNESS_MIN))
 
         if self.movieMode:
-            newBrightness = max(brightness, BRIGHTNESS_MOVIE_MIN)
-        elif self.darkOutside:
-            logging.debug("Decreasing brightness with " + str(BRIGHTNESS_WHEN_DARK_OUTSIDE) + " as it's dark outside")
-            newBrightness = min(BRIGHTNESS_MAX, max(BRIGHTNESS_MIN, brightness + BRIGHTNESS_WHEN_DARK_OUTSIDE))
+            newBrightness = max(tempBrightness, BRIGHTNESS_MOVIE_MIN)
         else:
-            newBrightness = brightness
+            newBrightness = tempBrightness
 
         diffBrightness = abs(self.brightness - newBrightness)
         if self.darkOutside:
@@ -253,7 +240,7 @@ class BrightnessAdjuster:
             minDiff = BRIGHTNESS_ADJUSTMENT_THRESHOLD_SUN_UP
 
         if diffBrightness >= minDiff:
-            # Only increase brightness if in movie mode
+            # Never decrease brightness in movie mode
             changeBrightness = False
             if not self.movieMode or newBrightness > self.brightness:
                 self.brightness = newBrightness
