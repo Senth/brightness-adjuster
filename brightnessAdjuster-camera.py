@@ -70,6 +70,7 @@ class SunsetChecker:
     def _updateCurrentDate(self):
         now = strftime("%Y-%m-%d", gmtime())
         if now != self.currentDate:
+            logging.info('Current date: ' + str(now))
             self.currentDate = now
             self.midnight = datetime.utcnow()
             self.midnight.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -85,10 +86,12 @@ class SunsetChecker:
         self._location.date = self.sunsetDate + " 12:00:00"
         sunset = self._location.next_setting(ephem.Sun())
         self.sunsetTime = sunset.datetime()
+        logging.info('Sunset time: ' + str(self.sunsetTime))
 
     # @return positive if there are minutes left, negative if the sun has set
     def getMinutesTillSunset(self):
-        now = datetime.utcnow()
+        now = datetime.now()
+        logging.debug('Now: ' + str(now))
         secondsSinceMidnightNow = (now - self.midnight).total_seconds()
         secondsSinceMidnightSunset = (self.sunsetTime - self.midnight).total_seconds()
         return (secondsSinceMidnightSunset - secondsSinceMidnightNow) / 60
@@ -96,13 +99,20 @@ class SunsetChecker:
     def isSunset(self):
         return self.getMinutesTillSunset() <= 0
 
-
+##############################
+# Checks ambient light in the room through a webcam
+# self.realLux is the current brightness from the webcam.
+# self.stableLux is the actual outgoing brightness. This is to filter out
+# noise, i.e. brightness spikes.
+##############################
 class AmbientLightChecker:
     CAMERA_RES_X = 2
     CAMERA_RES_Y = 2
+    LUX_STABLE_DIFF = 10
 
     def __init__(self):
-        self.lux = -256
+        self.stableLux = -256
+        self.realLux = -256
 
     def __exit__(self, exc_type, exc_value, traceback):
         if self.camera is not None and self.camera.isOpened():
@@ -111,6 +121,8 @@ class AmbientLightChecker:
     def update(self):
         if self.cameraIsBeingUsed():
             return
+
+        oldLux = self.realLux
 
         self.camera = cv2.VideoCapture(0)
         self.camera.set(5,15)
@@ -121,10 +133,14 @@ class AmbientLightChecker:
         if ret:
             self.grayImage = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             self.grayImage = cv2.resize(self.grayImage, (self.CAMERA_RES_X, self.CAMERA_RES_Y))
-            self.lux = self.calculateMax()
-            logging.debug("Camera Brightness: " + str(self.lux))
+            self.realLux = self.calculateMax()
+            logging.debug("Camera Brightness: " + str(self.realLux))
             self.camera.release()
             self.camera = None
+
+            if abs(oldLux - self.realLux) <= self.LUX_STABLE_DIFF:
+                self.stableLux = self.realLux
+                logging.debug("Updated stable LUX: " + str(self.stableLux))
 
     def calculateMax(self):
         maxValue = 0
@@ -133,7 +149,7 @@ class AmbientLightChecker:
                 currentValue = self.grayImage[y][x]
                 if currentValue > maxValue:
                     maxValue = currentValue
-        return maxValue
+        return int(maxValue)
 
     def cameraIsBeingUsed(self):
         ps = check_output(['ps', 'x']).decode('utf-8')
@@ -145,10 +161,10 @@ class AmbientLightChecker:
         return False
 
     def getLux(self):
-        return self.lux
+        return self.stableLux
 
     def getNormalizedLux(self):
-        return float(self.lux) / float(256)
+        return float(self.stableLux) / float(256)
         
 
 class ProgramChecker:
