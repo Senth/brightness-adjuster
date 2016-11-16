@@ -30,6 +30,12 @@ BRIGHTNESS_MOVIE_MIN = 50
 BRIGHTNESS_ADJUSTMENT_THRESHOLD_SUN_UP = 7
 BRIGHTNESS_ADJUSTMENT_THRESHOLD_SUN_DOWN = 3
 
+# Redshift
+REDSHIFT_TEMPERATURE_DAY = 6500
+REDSHIFT_TEMPERATURE_NIGHT = 3000
+# How many minutes it takes to shift to full night color (from sunset)
+REDSHIFT_TRANSITION_TIME = 120
+
 # Location information
 LOCATION_LATITUDE = 55.7
 LOCATION_LONGITUDE = 13.2
@@ -224,6 +230,64 @@ class ProgramChecker:
         else:
             return False
 
+class RedshiftAdjuster:
+    # How fast the color is changed in seconds.
+    ADJUST_SPEED = 7000
+    ADJUST_INTERVALS = 10 # ms
+    ADJUST_INTERVAL_SLEEP = float(ADJUST_INTERVALS) / 1000
+    ADJUST_PER_INTERVAL = ADJUST_SPEED * ADJUST_INTERVAL_SLEEP
+    DAY_NIGHT_DIFF_TEMPERATURE = REDSHIFT_TEMPERATURE_DAY - REDSHIFT_TEMPERATURE_NIGHT
+
+    def __init__(self):
+        self.enabled = True
+        self.redshiftTemperature = REDSHIFT_TEMPERATURE_DAY
+        self.screenTemperature = REDSHIFT_TEMPERATURE_DAY
+
+    def updateRedshift(self, timeSinceSunset):
+        if self.enabled:
+            # Sun is still up
+            if timeSinceSunset < 0:
+                newTemperature = REDSHIFT_TEMPERATURE_DAY
+            # Sun has set, transitioning
+            if timeSinceSunset < REDSHIFT_TRANSITION_TIME:
+                diffFraction = (REDSHIFT_TRANSITION_TIME - timeSinceSunset) / REDSHIFT_TRANSITION_TIME
+                diffTemperature = diffFraction * RedshiftAdjuster.DAY_NIGHT_DIFF_TEMPERATURE
+                newTemperature = REDSHIFT_TEMPERATURE_NIGHT + diffTemperature
+            # Done transitioning
+            else:
+                newTemperature = REDSHIFT_TEMPERATURE_NIGHT
+
+            self.redshiftTemperature = newTemperature
+            self._setRedshiftSlowly(newTemperature)
+
+    def _setRedshiftSlowly(self, newTemperature):
+        logging.info('Redshift slowly: ' + str(newTemperature))
+        if newTemperature != self.screenTemperature:
+            diffTemperature = newTemperature - self.screenTemperature
+            intervals = int(abs(diffTemperature) / RedshiftAdjuster.ADJUST_PER_INTERVAL)
+            if diffTemperature < 0:
+                intervalAdjustment = -RedshiftAdjuster.ADJUST_PER_INTERVAL
+            else:
+                intervalAdjustment = RedshiftAdjuster.ADJUST_PER_INTERVAL
+
+            for i in range(1, intervals+1):
+                self._setRedshift(self.screenTemperature + intervalAdjustment)
+                sleep(RedshiftAdjuster.ADJUST_INTERVAL_SLEEP)
+
+            self._setRedshift(newTemperature)
+
+    def _setRedshift(self, temperature):
+        self.screenTemperature = temperature
+        Popen(['redshift', '-O' , str(temperature)])
+
+    def disable(self):
+        self.enabled = False
+        self._setRedshiftSlowly(REDSHIFT_TEMPERATURE_DAY)
+
+    def enable(self):
+        self.enabled = True
+        self._setRedshiftSlowly(self.redshiftTemperature)
+        
 
 class BrightnessAdjuster:
     def __init__(self):
@@ -290,6 +354,7 @@ def main():
     sleep(args.initialize_time)
     programChecker = ProgramChecker(PROGRAMS_DISABLED, FULLSCREEN_DISABLED)
     brightnessAdjuster = BrightnessAdjuster()
+    redshiftAdjuster = RedshiftAdjuster()
     ambientLightChecker = AmbientLightChecker()
     sunsetChecker = SunsetChecker()
 
@@ -299,10 +364,16 @@ def main():
             sunsetChecker.update()
             darkOutside = sunsetChecker.isSunset()
             lux = ambientLightChecker.getNormalizedLux()
-            if programChecker.shouldBeDisabled() and not brightnessAdjuster.isMovieMode():
-                brightnessAdjuster.enableMovieMode()
-            elif not programChecker.shouldBeDisabled() and brightnessAdjuster.isMovieMode():
-                brightnessAdjuster.disableMovieMode()
+            redshiftAdjuster.updateRedshift(sunsetChecker.getMinutesTillSunset() * -1)
+            if programChecker.shouldBeDisabled():
+                redshiftAdjuster.disable()
+                if not brightnessAdjuster.isMovieMode():
+                    brightnessAdjuster.enableMovieMode()
+            else:
+                redshiftAdjuster.enable()
+                if brightnessAdjuster.isMovieMode():
+                    brightnessAdjuster.disableMovieMode()
+            
             brightnessAdjuster.setDarkOutside(darkOutside)
             if lux >= 0:
                 brightnessAdjuster.setBrightness(lux)
