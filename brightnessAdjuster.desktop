@@ -1,0 +1,19 @@
+[Desktop Entry]
+Comment[smj_SE]=Adjusts Screen brightness
+Comment=Adjusts Screen brightness
+Exec=/usr/bin/python2 SCRIPT_PATH/brightnessAdjuster.py
+GenericName[smj_SE]=
+GenericName=
+Icon=colorfx
+MimeType=
+Name[smj_SE]=Brightness Adjuster Camera
+Name=Brightness Adjuster Camera
+Path=
+StartupNotify=false
+Terminal=false
+TerminalOptions=
+Type=Application
+X-DBUS-ServiceName=
+X-DBUS-StartupType=
+X-KDE-SubstituteUID=false
+X-KDE-Username=
