@@ -19,7 +19,7 @@ DISPLAYS = ['adl:0:0', 'adl:0:1', 'adl:0:4']
 # XScreen, check with "echo $DISPLAY" in a terminal
 X_SCREEN = ':0.0'
 CAMERA = "/dev/video0"
-CAMERA_PROGRAMS = ['pavucontrol']
+CAMERA_PROGRAMS = ['pavucontrol', 'OBS', 'skype', 'audacity']
 
 # Brightness adjustments depending on the sunset time.
 BRIGHTNESS_MAX = 100
