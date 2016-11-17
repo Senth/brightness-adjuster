@@ -240,21 +240,25 @@ class RedshiftAdjuster:
 
     def __init__(self):
         self.enabled = True
-        self.redshiftTemperature = REDSHIFT_TEMPERATURE_DAY
-        self.screenTemperature = REDSHIFT_TEMPERATURE_DAY
+        self.redshiftTemperature = REDSHIFT_TEMPERATURE_DAY - 500
+        self.screenTemperature = REDSHIFT_TEMPERATURE_DAY - 500
 
     def updateRedshift(self, timeSinceSunset):
         if self.enabled:
+            logging.info("Minutes since sunset: " + str(timeSinceSunset))
             # Sun is still up
             if timeSinceSunset < 0:
+                logging.info("Day redshift")
                 newTemperature = REDSHIFT_TEMPERATURE_DAY
             # Sun has set, transitioning
-            if timeSinceSunset < REDSHIFT_TRANSITION_TIME:
+            elif timeSinceSunset < REDSHIFT_TRANSITION_TIME:
+                logging.info("Transitioning to nightshift")
                 diffFraction = (REDSHIFT_TRANSITION_TIME - timeSinceSunset) / REDSHIFT_TRANSITION_TIME
                 diffTemperature = diffFraction * RedshiftAdjuster.DAY_NIGHT_DIFF_TEMPERATURE
                 newTemperature = REDSHIFT_TEMPERATURE_NIGHT + diffTemperature
             # Done transitioning
             else:
+                logging.info("Night redshift")
                 newTemperature = REDSHIFT_TEMPERATURE_NIGHT
 
             self.redshiftTemperature = newTemperature
