@@ -183,9 +183,13 @@ class ProgramChecker:
         if self.fullscreenDisable:
             # Check old windows if they should be removed (as they aren't in fullscreen anymore
             for windowId in list(self.fullscreenWindowIds):
-                if not self._isWindowFullscreen(windowId):
+                try:
+                    if not self._isWindowFullscreen(windowId):
+                        self.fullscreenWindowIds.remove(windowId)
+                except CalledProcessError:
                     self.fullscreenWindowIds.remove(windowId)
 
+            # other windows for fullscreen
             windowIdOutput = check_output(['xprop', '-display', X_SCREEN, '-root', '_NET_ACTIVE_WINDOW']).decode('utf-8')
             windowId = windowIdOutput[40:-1]
             logging.debug("Window id: " + windowId)
