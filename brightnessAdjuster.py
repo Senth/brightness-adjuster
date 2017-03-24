@@ -6,7 +6,7 @@ import re
 import argparse
 from datetime import datetime
 from time import gmtime, strftime, sleep
-from subprocess import Popen, check_output, CalledProcessError
+from subprocess import call, Popen, check_output, CalledProcessError
 
 
 # Always disabled adjustment and set it to default when any of these programs are running
@@ -15,7 +15,7 @@ PROGRAMS_DISABLED = ['mplayer', 'smplayer', 'vlc']
 FULLSCREEN_DISABLED = True
 
 # Displays to change brightness of, check with ddccontrol -p
-DISPLAYS = ['adl:0:0', 'adl:0:1', 'adl:0:4']
+DISPLAYS = ['3', '2', '1']
 # XScreen, check with "echo $DISPLAY" in a terminal
 X_SCREEN = ':0.0'
 CAMERA = "/dev/video0"
@@ -32,7 +32,7 @@ BRIGHTNESS_ADJUSTMENT_THRESHOLD_SUN_DOWN = 3
 
 # Redshift
 REDSHIFT_TEMPERATURE_DAY = 6500
-REDSHIFT_TEMPERATURE_NIGHT = 3000
+REDSHIFT_TEMPERATURE_NIGHT = 2800
 # How many minutes it takes to shift to full night color (from sunset)
 REDSHIFT_TRANSITION_TIME = 120
 
@@ -44,7 +44,7 @@ LOCATION_ELEVATION = 20
 # How long to wait between checking if something has changed, in seconds
 WAIT_TIME = 3
 # How many seconds to wait after adjusting the brightness before adjusting again
-WAIT_TIME_AFTER_ADJUSTMENT = 15
+WAIT_TIME_AFTER_ADJUSTMENT = 3
 # How long to wait before starting the script. Can be specified by -i 0
 INITIALIZE_TIME = 10
 
@@ -337,7 +337,7 @@ class BrightnessAdjuster:
             if changeBrightness:
                 logging.info("Set brightness to " + str(self.brightness))
                 for display in DISPLAYS:
-                    Popen(['ddccontrol', '-r', '0x10', '-w', str(self.brightness), display])
+                    call(['ddcutil', '-d', display, 'setvcp', '10', str(self.brightness)])
                 sleep(WAIT_TIME_AFTER_ADJUSTMENT)
 
     def enableMovieMode(self):
