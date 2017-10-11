@@ -298,14 +298,17 @@ class RedshiftAdjuster:
         
 
 class BrightnessAdjuster:
+    BRIGHTNESS_MODES = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+    
     def __init__(self):
         self.movieMode = False
         self.brightness = -100
+        self.brightnessClamped = -100
         self.darkOutside = False
         self.brightnessMax = BRIGHTNESS_MAX
 
     def setDarkOutside(self, darkOutside):
-        self.darkOutside = darkOutside;
+        self.darkOutside = darkOutside
         if darkOutside:
             logging.debug("It's dark outside...")
             self.brightnessMax = BRIGHTNESS_MAX_WHEN_DARK_OUTSIDE
@@ -332,13 +335,26 @@ class BrightnessAdjuster:
             changeBrightness = False
             if not self.movieMode or newBrightness > self.brightness:
                 self.brightness = newBrightness
+                self.brightnessClamped = self._getClampedBrightness(newBrightness)
                 changeBrightness = True
 
             if changeBrightness:
-                logging.info("Set brightness to " + str(self.brightness))
+                logging.info("Set brightness to " + str(self.brightnessClamped))
                 for display in DISPLAYS:
-                    call(['ddcutil', '-d', display, 'setvcp', '10', str(self.brightness)])
+                    call(['ddcutil', '-d', display, 'setvcp', '10', str(self.brightnessClamped)])
                 sleep(WAIT_TIME_AFTER_ADJUSTMENT)
+
+    def _getClampedBrightness(self, newBrightness):
+        closestValue = 100
+        closestMode = 50
+
+        for mode in BrightnessAdjuster.BRIGHTNESS_MODES:
+            diffValue = abs(newBrightness - mode)
+            if diffValue < closestValue:
+                closestValue = diffValue
+                closestMode = mode
+
+        return closestMode
 
     def enableMovieMode(self):
         logging.info("Movie mode enabled")
@@ -374,11 +390,11 @@ def main():
             lux = ambientLightChecker.getNormalizedLux()
             redshiftAdjuster.updateRedshift(sunsetChecker.getMinutesTillSunset() * -1)
             if programChecker.shouldBeDisabled():
-                redshiftAdjuster.disable()
+#                 redshiftAdjuster.disable()
                 if not brightnessAdjuster.isMovieMode():
                     brightnessAdjuster.enableMovieMode()
             else:
-                redshiftAdjuster.enable()
+#                 redshiftAdjuster.enable()
                 if brightnessAdjuster.isMovieMode():
                     brightnessAdjuster.disableMovieMode()
             
