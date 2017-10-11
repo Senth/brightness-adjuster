@@ -8,5 +8,5 @@ setup(name='Whitelight',
       author='Matteus Magnusson',
       author_email='matteus.magnusson@gmail.com',
       url='https://github.com/Senth/brightness-adjuster',
-      packages=['whitelight'],
+      packages=['whitelight', 'ephem'],
       )

@@ -14,7 +14,7 @@ PROGRAMS_DISABLED = ['mplayer', 'smplayer', 'vlc']
 # Always disabled adjustment and set it to default when anything is in fullscreen
 FULLSCREEN_DISABLED = True
 
-# Displays to change brightness of, check with ddccontrol -p
+# Displays to change brightness of, check with ddcutil
 DISPLAYS = ['3', '2', '1']
 # XScreen, check with "echo $DISPLAY" in a terminal
 X_SCREEN = ':0.0'
@@ -104,6 +104,7 @@ class SunsetChecker:
 
     def isSunset(self):
         return self.getMinutesTillSunset() <= 0
+
 
 ##############################
 # Checks ambient light in the room through a webcam
