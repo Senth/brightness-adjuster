@@ -3,7 +3,7 @@ from time import sleep
 from config import REDSHIFT_TEMPERATURE_DAY, REDSHIFT_TEMPERATURE_NIGHT, REDSHIFT_TRANSITION_TIME
 from subprocess import Popen
 
-logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class RedshiftAdjuster:
@@ -19,29 +19,29 @@ class RedshiftAdjuster:
         self.redshift_temperature = REDSHIFT_TEMPERATURE_DAY - 500
         self.screen_temperature = REDSHIFT_TEMPERATURE_DAY - 500
 
-    def update_redshift(self, time_since_sunset):
+    def set_redshift(self, time_since_sunset):
         if self.enabled:
-            logging.info("Minutes since sunset: " + str(time_since_sunset))
+            logger.info("Minutes since sunset: " + str(time_since_sunset))
             # Sun is still up
             if time_since_sunset < 0:
-                logging.info("Day redshift")
+                logger.info("Day redshift")
                 new_temperature = REDSHIFT_TEMPERATURE_DAY
             # Sun has set, transitioning
             elif time_since_sunset < REDSHIFT_TRANSITION_TIME:
-                logging.info("Transitioning to night shift")
+                logger.info("Transitioning to night shift")
                 diff_fraction = (REDSHIFT_TRANSITION_TIME - time_since_sunset) / REDSHIFT_TRANSITION_TIME
                 diff_temperature = diff_fraction * RedshiftAdjuster.DAY_NIGHT_DIFF_TEMPERATURE
                 new_temperature = REDSHIFT_TEMPERATURE_NIGHT + diff_temperature
             # Done transitioning
             else:
-                logging.info("Night redshift")
+                logger.info("Night redshift")
                 new_temperature = REDSHIFT_TEMPERATURE_NIGHT
 
             self.redshift_temperature = new_temperature
             self._set_redshift_slowly(new_temperature)
 
     def _set_redshift_slowly(self, new_temperature):
-        logging.info('Redshift slowly: ' + str(new_temperature))
+        logger.info('Redshift slowly: ' + str(new_temperature))
         if new_temperature != self.screen_temperature:
             diff_temperature = new_temperature - self.screen_temperature
             intervals = int(abs(diff_temperature) / RedshiftAdjuster.ADJUST_PER_INTERVAL)

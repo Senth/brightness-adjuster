@@ -391,11 +391,9 @@ def main():
             lux = ambientLightChecker.getNormalizedLux()
             redshiftAdjuster.updateRedshift(sunsetChecker.getMinutesTillSunset() * -1)
             if programChecker.shouldBeDisabled():
-#                 redshiftAdjuster.disable()
                 if not brightnessAdjuster.isMovieMode():
                     brightnessAdjuster.enableMovieMode()
             else:
-#                 redshiftAdjuster.enable()
                 if brightnessAdjuster.isMovieMode():
                     brightnessAdjuster.disableMovieMode()
             

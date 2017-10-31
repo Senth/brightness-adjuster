@@ -3,13 +3,12 @@ import types
 from subprocess import call
 from config import DISPLAYS, MANUAL_BRIGHTNESS
 
-logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class BrightnessAdjuster:
     AUTO_CLAMP_BRIGHTNESS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
     MIN_DIFF = 7
-
 
     def __init__(self):
         self.auto_mode = False
@@ -29,8 +28,13 @@ class BrightnessAdjuster:
                     self.auto_brightness = new_brightness
                     self._set_brightness(clamped_brightness)
 
-    def turn_on_auto_brightness(self):
-        self.auto_mode = True
+    def toggle_auto_brightness(self, on):
+        self.auto_mode = on
+
+    def set_manual_brightness(self, brightness):
+        """Set the manual brightness. Automatically turns off auto brightness"""
+        self.auto_mode = False
+        self._set_brightness(brightness)
 
     def _set_brightness(self, brightness):
         # List
@@ -40,7 +44,7 @@ class BrightnessAdjuster:
         else:
             self.brightness = brightness
 
-        logging.info('Set brightness to ' + str(brightness))
+        logger.info('Set brightness to ' + str(brightness))
         for index, display in enumerate(DISPLAYS):
             if isinstance(brightness, types.ListType):
                 display_brightness = brightness[index]

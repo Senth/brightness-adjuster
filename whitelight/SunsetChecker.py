@@ -4,7 +4,7 @@ from time import gmtime, strftime
 from datetime import datetime
 from config import LOCATION_ELEVATION, LOCATION_LATITUDE, LOCATION_LONGITUDE
 
-logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class SunsetChecker:
@@ -28,7 +28,7 @@ class SunsetChecker:
     def _update_current_date(self):
         now = strftime("%Y-%m-%d", gmtime())
         if now != self.current_date:
-            logging.info('Current date: ' + str(now))
+            logger.info('Current date: ' + str(now))
             self.current_date = now
             self.midnight = datetime.utcnow()
             self.midnight.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -44,16 +44,15 @@ class SunsetChecker:
         self._location.date = self.sunsetDate + " 12:00:00"
         sunset = self._location.next_setting(ephem.Sun())
         self.sunsetTime = sunset.datetime()
-        logging.info('Sunset time: ' + str(self.sunsetTime))
+        logger.info('Sunset time: ' + str(self.sunsetTime))
 
-    # @return positive if there are minutes left, negative if the sun has set
-    def get_minutes_until_sunset(self):
+    def get_minutes_since_sunset(self):
+        """@return negative if there are minutes left, positive if the sun has set."""
         now = datetime.now()
-        logging.debug('Now: ' + str(now))
+        logger.debug('Now: ' + str(now))
         seconds_since_midnight_now = (now - self.midnight).total_seconds()
         seconds_since_midnight_sunset = (self.sunsetTime - self.midnight).total_seconds()
-        return (seconds_since_midnight_sunset - seconds_since_midnight_now) / 60
+        return (seconds_since_midnight_sunset - seconds_since_midnight_now) / -60
 
     def is_sunset(self):
-        return self.get_minutes_until_sunset() <= 0
-
+        return self.get_minutes_since_sunset() <= 0

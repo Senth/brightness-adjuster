@@ -3,6 +3,9 @@ LOCATION_LATITUDE = 55.7
 LOCATION_LONGITUDE = 13.2
 LOCATION_ELEVATION = 20 # meters over the sea
 
+# Default initialize time
+INITIALIZE_TIME = 0
+
 # Redshift temperature settings (in Kelvin)
 REDSHIFT_TEMPERATURE_DAY = 6500
 REDSHIFT_TEMPERATURE_NIGHT = 2800
